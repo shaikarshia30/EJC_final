@@ -1,0 +1,712 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  HR_MANAGER
+  MANAGER
+  EMPLOYEE
+}
+
+enum EmploymentStatus {
+  PROBATION
+  ACTIVE
+  NOTICE_PERIOD
+  TERMINATED
+  ALUMNI
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACTOR
+  INTERN
+}
+
+enum JourneyStage {
+  RECRUITMENT
+  JOINED
+  ONBOARDING
+  PROBATION
+  ACTIVE_DEVELOPMENT
+  MID_REVIEW
+  PROMOTION
+  TRANSFER
+  LEADERSHIP
+  OFFBOARDING
+  ALUMNI
+}
+
+enum JourneyCategory {
+  LIFECYCLE
+  ONBOARDING
+  SKILL
+  GOAL
+  LEARNING
+  PERFORMANCE
+  RECOGNITION
+  CAREER
+  ORGANIZATION
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  WAIVED
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  ON_TRACK
+  AT_RISK
+  BEHIND
+  COMPLETED
+}
+
+enum SkillProficiency {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum DocumentAccessLevel {
+  ALL_EMPLOYEES
+  MANAGERS_ONLY
+  HR_ONLY
+  ADMIN_ONLY
+}
+
+// -------------------------------------------------------------
+// 1. TENANCY & IAM
+// -------------------------------------------------------------
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  domain      String?
+  logoUrl     String?
+  status      String   @default("ACTIVE")
+  contactEmail String?
+  contactPhone String?
+  settings    Json?    @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users               User[]
+  employees           Employee[]
+  departments         Department[]
+  teams               Team[]
+  skills              Skill[]
+  courses             Course[]
+  projects            Project[]
+  onboardingTemplates OnboardingTemplate[]
+  performanceCycles   PerformanceReviewCycle[]
+  documents           Document[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  surveys             Survey[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organizationId String
+  email          String
+  passwordHash   String
+  role           UserRole  @default(EMPLOYEE)
+  isActive       Boolean   @default(true)
+  refreshToken   String?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Employee?
+  authoredAudits AuditLog[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+// -------------------------------------------------------------
+// 2. EMPLOYEE 360 PROFILE
+// -------------------------------------------------------------
+
+model Department {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  code           String?
+  description    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teams          Team[]
+  employees      Employee[]
+
+  @@unique([organizationId, name])
+  @@map("departments")
+}
+
+model Team {
+  id             String       @id @default(uuid())
+  organizationId String
+  departmentId   String
+  name           String
+  description    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  employees      Employee[]
+
+  @@map("teams")
+}
+
+model Employee {
+  id                String           @id @default(uuid())
+  userId            String           @unique
+  organizationId    String
+  employeeCode      String
+  firstName         String
+  lastName          String
+  avatarUrl         String?
+  jobTitle          String
+  phone             String?
+  location          String?
+  status            EmploymentStatus @default(PROBATION)
+  employmentType    EmploymentType   @default(FULL_TIME)
+  experienceYears   Float            @default(0)
+  currentLevel      String?          @default("L1")
+  address           String?
+  emergencyContact  Json?
+  education         Json?
+  workExperience    Json?
+  isOnboardingCompleted Boolean        @default(false)
+  onboardingStep    Int              @default(1)
+  onboardingData    Json?            @default("{}")
+  probationEndDate  DateTime?
+  joinedAt          DateTime         @default(now())
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departmentId      String?
+  department        Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  teamId            String?
+  team              Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  managerId         String?
+  manager           Employee?        @relation("ManagerReports", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports     Employee[]       @relation("ManagerReports")
+
+  journeyEvents     JourneyEvent[]
+  skills            EmployeeSkill[]
+  goals             Goal[]
+  reviews           PerformanceReview[] @relation("EmployeeReviews")
+  givenReviews      PerformanceReview[] @relation("ManagerReviews")
+  receivedFeedback  Feedback[]          @relation("FeedbackRecipient")
+  givenFeedback     Feedback[]          @relation("FeedbackAuthor")
+  receivedBadges    Recognition[]       @relation("BadgeRecipient")
+  givenBadges       Recognition[]       @relation("BadgeAuthor")
+  courseEnrollments CourseEnrollment[]
+  certifications    Certification[]
+  onboardingTasks   EmployeeOnboardingTask[]
+  developmentPlans  DevelopmentPlan[]
+  assignedProjects  ProjectMember[]
+  notifications     Notification[]
+  surveyResponses   SurveyResponse[]
+
+  @@unique([organizationId, employeeCode])
+  @@index([organizationId, status])
+  @@map("employees")
+}
+
+// -------------------------------------------------------------
+// 3. EMPLOYEE JOURNEY GRAPH & TIMELINE ENGINE
+// -------------------------------------------------------------
+
+model JourneyEvent {
+  id              String          @id @default(uuid())
+  organizationId  String
+  employeeId      String
+  stage           JourneyStage
+  category        JourneyCategory
+  title           String
+  description     String
+  iconName        String?         @default("Milestone")
+  actorId         String?
+  actorName       String?
+  relatedModule   String?
+  relatedEntityId String?
+  metadata        Json?           @default("{}")
+  occurredAt      DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+
+  employee        Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, employeeId, occurredAt])
+  @@map("journey_events")
+}
+
+// -------------------------------------------------------------
+// 4. ONBOARDING
+// -------------------------------------------------------------
+
+model OnboardingTemplate {
+  id             String           @id @default(uuid())
+  organizationId String
+  title          String
+  description    String?
+  isDefault      Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tasks          OnboardingTask[]
+
+  @@map("onboarding_templates")
+}
+
+model OnboardingTask {
+  id             String                 @id @default(uuid())
+  templateId     String
+  title          String
+  description    String
+  category       String                 @default("GENERAL")
+  dueDayOffset   Int                    @default(7)
+  assignedRole   UserRole               @default(EMPLOYEE)
+  requiredDoc    String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  template       OnboardingTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  employeeTasks  EmployeeOnboardingTask[]
+
+  @@map("onboarding_tasks")
+}
+
+model EmployeeOnboardingTask {
+  id             String         @id @default(uuid())
+  employeeId     String
+  taskId         String
+  status         TaskStatus     @default(PENDING)
+  dueDate        DateTime?
+  completedAt    DateTime?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  employee       Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  task           OnboardingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, taskId])
+  @@map("employee_onboarding_tasks")
+}
+
+// -------------------------------------------------------------
+// 5. GOALS & PERFORMANCE MANAGEMENT
+// -------------------------------------------------------------
+
+model Goal {
+  id              String       @id @default(uuid())
+  organizationId  String
+  employeeId      String
+  title           String
+  description     String?
+  category        String       @default("INDIVIDUAL")
+  status          GoalStatus   @default(IN_PROGRESS)
+  progressPercent Float        @default(0)
+  startDate       DateTime
+  dueDate         DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  employee        Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  keyResults      KeyResult[]
+
+  @@index([organizationId, employeeId])
+  @@map("goals")
+}
+
+model KeyResult {
+  id              String   @id @default(uuid())
+  goalId          String
+  title           String
+  currentValue    Float    @default(0)
+  targetValue     Float    @default(100)
+  unit            String   @default("%")
+  progressPercent Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  goal            Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@map("key_results")
+}
+
+model PerformanceReviewCycle {
+  id             String              @id @default(uuid())
+  organizationId String
+  title          String
+  period         String
+  startDate      DateTime
+  endDate        DateTime
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviews        PerformanceReview[]
+
+  @@map("performance_cycles")
+}
+
+model PerformanceReview {
+  id                  String                 @id @default(uuid())
+  cycleId             String
+  employeeId          String
+  managerId           String?
+  rating              Float?
+  selfReview          String?
+  managerReview       String?
+  strengths           String?
+  growthAreas         String?
+  status              String                 @default("DRAFT")
+  finalizedAt         DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  cycle               PerformanceReviewCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  employee            Employee               @relation("EmployeeReviews", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager             Employee?              @relation("ManagerReviews", fields: [managerId], references: [id], onDelete: SetNull)
+
+  @@unique([cycleId, employeeId])
+  @@map("performance_reviews")
+}
+
+model Feedback {
+  id             String   @id @default(uuid())
+  organizationId String
+  recipientId    String
+  authorId       String
+  content        String
+  category       String   @default("PEER")
+  isAnonymous    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  recipient      Employee @relation("FeedbackRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  author         Employee @relation("FeedbackAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("feedbacks")
+}
+
+model Recognition {
+  id             String   @id @default(uuid())
+  organizationId String
+  recipientId    String
+  authorId       String
+  badgeTitle     String
+  message        String
+  createdAt      DateTime @default(now())
+
+  recipient      Employee @relation("BadgeRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  author         Employee @relation("BadgeAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("recognitions")
+}
+
+// -------------------------------------------------------------
+// 6. SKILLS & LEARNING MANAGEMENT
+// -------------------------------------------------------------
+
+model Skill {
+  id             String          @id @default(uuid())
+  organizationId String
+  name           String
+  category       String          @default("TECHNICAL")
+  description    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employeeSkills EmployeeSkill[]
+  courses        Course[]
+
+  @@unique([organizationId, name])
+  @@map("skills")
+}
+
+model EmployeeSkill {
+  id                String           @id @default(uuid())
+  employeeId        String
+  skillId           String
+  proficiency       SkillProficiency @default(BEGINNER)
+  targetProficiency SkillProficiency?
+  isVerified        Boolean          @default(false)
+  verifiedBy        String?
+  verifiedAt        DateTime?
+  gapIdentified     Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  employee          Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  skill             Skill            @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, skillId])
+  @@map("employee_skills")
+}
+
+model Course {
+  id                String             @id @default(uuid())
+  organizationId    String
+  skillId           String?
+  title             String
+  description       String
+  provider          String?            @default("Internal Academy")
+  durationMinutes   Int                @default(60)
+  level             String             @default("INTERMEDIATE")
+  targetProficiency SkillProficiency?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  skill             Skill?             @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  enrollments       CourseEnrollment[]
+
+  @@map("courses")
+}
+
+model CourseEnrollment {
+  id          String     @id @default(uuid())
+  employeeId  String
+  courseId    String
+  status      TaskStatus @default(IN_PROGRESS)
+  progress    Float      @default(0)
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  employee    Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  course      Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, courseId])
+  @@map("course_enrollments")
+}
+
+model Certification {
+  id          String    @id @default(uuid())
+  employeeId  String
+  name        String
+  issuer      String
+  issueDate   DateTime  @default(now())
+  expiryDate  DateTime?
+  credentialId String?
+  createdAt   DateTime  @default(now())
+
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("certifications")
+}
+
+// -------------------------------------------------------------
+// 7. CAREER PATHS & DEVELOPMENT
+// -------------------------------------------------------------
+
+model CareerPath {
+  id             String   @id @default(uuid())
+  organizationId String
+  currentRole    String
+  targetRole     String
+  readinessCriteria Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("career_paths")
+}
+
+model DevelopmentPlan {
+  id             String   @id @default(uuid())
+  employeeId     String
+  targetRole     String
+  aspirations    String?
+  actions        Json?    @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("development_plans")
+}
+
+// -------------------------------------------------------------
+// 8. ENGAGEMENT (Surveys & Pulse)
+// -------------------------------------------------------------
+
+model Survey {
+  id             String           @id @default(uuid())
+  organizationId String
+  title          String
+  description    String?
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  responses      SurveyResponse[]
+
+  @@map("surveys")
+}
+
+model SurveyResponse {
+  id         String   @id @default(uuid())
+  surveyId   String
+  employeeId String
+  score      Int      @default(5)
+  feedback   String?
+  createdAt  DateTime @default(now())
+
+  survey     Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("survey_responses")
+}
+
+// -------------------------------------------------------------
+// 9. DOCUMENTS & PGVECTOR RAG
+// -------------------------------------------------------------
+
+model Document {
+  id             String              @id @default(uuid())
+  organizationId String
+  title          String
+  category       String              @default("POLICY")
+  fileUrl        String?
+  fileType       String              @default("TXT")
+  accessLevel    DocumentAccessLevel @default(ALL_EMPLOYEES)
+  departmentId   String?
+  version        Int                 @default(1)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chunks         DocumentChunk[]
+
+  @@index([organizationId, accessLevel])
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id             String                      @id @default(uuid())
+  documentId     String
+  chunkIndex     Int
+  content        String
+  embedding      Unsupported("vector(1536)")?
+  metadata       Json?                       @default("{}")
+  createdAt      DateTime                    @default(now())
+
+  document       Document                    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_chunks")
+}
+
+// -------------------------------------------------------------
+// 10. NOTIFICATIONS & AUDIT LOGS
+// -------------------------------------------------------------
+
+model Notification {
+  id             String   @id @default(uuid())
+  organizationId String
+  employeeId     String
+  title          String
+  message        String
+  type           String   @default("INFO")
+  isRead         Boolean  @default(false)
+  link           String?
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, employeeId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  actorId        String
+  action         String
+  resource       String
+  resourceId     String?
+  oldValue       Json?
+  newValue       Json?
+  ipAddress      String?
+  userAgent      String?
+  timestamp      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User         @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, resource, timestamp])
+  @@map("audit_logs")
+}
+
+// -------------------------------------------------------------
+// 11. PROJECTS & INITIATIVES
+// -------------------------------------------------------------
+
+model Project {
+  id             String          @id @default(uuid())
+  organizationId String
+  name           String
+  code           String?
+  description    String?
+  status         String          @default("PLANNING")
+  startDate      DateTime?
+  targetEndDate  DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        ProjectMember[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id         String   @id @default(uuid())
+  projectId  String
+  employeeId String
+  role       String   @default("CONTRIBUTOR")
+  joinedAt   DateTime @default(now())
+
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, employeeId])
+  @@map("project_members")
+}
+

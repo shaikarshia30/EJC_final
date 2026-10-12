@@ -1,0 +1,14 @@
+{
+  "name": "ejc-main",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "build:validation": "pnpm --filter @ejc/validation build"
+  },
+  "devDependencies": {
+    "@prisma/client": "6.19.3",
+    "prisma": "6.19.3"
+  }
+}
