@@ -1,6 +1,6 @@
 import { ApiResponse, Employee360DTO, JourneyEventDTO, GoalDTO, AIChatMessage, ProjectDTO } from '@ejc/types';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export const getAuthToken = () => localStorage.getItem('ejc_token');
 export const setAuthToken = (token: string) => localStorage.setItem('ejc_token', token);
@@ -128,6 +128,8 @@ export const api = {
       }),
   },
   performance: {
+      getCycles: () => request<any>('/performance/cycles'),
+  getReviews: () => request<any[]>('/performance/reviews'),
     getGoals: (employeeId: string) => request<GoalDTO[]>(`/performance/goals/employee/${employeeId}`),
     createGoal: (data: any) => request<any>('/performance/goals', { method: 'POST', body: JSON.stringify(data) }),
     updateGoal: (goalId: string, progressPercent: number, status?: string) =>
@@ -146,10 +148,20 @@ export const api = {
     getCatalog: () => request<any[]>('/skills'),
     verify: (employeeSkillId: string) => request<any>(`/skills/verify/${employeeSkillId}`, { method: 'POST' }),
   },
-  learning: {
-    getCourses: () => request<any[]>('/learning/courses'),
-    complete: (enrollmentId: string) => request<any>(`/learning/enrollments/${enrollmentId}/complete`, { method: 'POST' }),
-  },
+learning: {
+  getCourses: () => request<any[]>('/learning/courses'),
+
+  enroll: (employeeId: string, courseId: string) =>
+    request<any>('/learning/enroll', {
+      method: 'POST',
+      body: JSON.stringify({ employeeId, courseId }),
+    }),
+
+  complete: (enrollmentId: string) =>
+    request<any>(`/learning/enrollments/${enrollmentId}/complete`, {
+      method: 'POST',
+    }),
+},
   career: {
     getReadiness: (employeeId: string) => request<any>(`/career/readiness/${employeeId}`),
     promote: (data: { employeeId: string; newTitle: string; newLevel: string }) =>
