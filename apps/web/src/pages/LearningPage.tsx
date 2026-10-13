@@ -33,14 +33,12 @@ export const LearningPage: React.FC = () => {
   const handleEnroll = async (courseId: string, courseTitle: string) => {
     if (!employeeId) return;
     try {
-      await fetch('/api/learning/enroll', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('ejc_token')}`,
-        },
-        body: JSON.stringify({ employeeId, courseId }),
-      });
+     await api.learning.enroll(employeeId, courseId);
+
+setNotification(`Enrolled in "${courseTitle}"!`);
+setTimeout(() => setNotification(null), 4000);
+
+await loadCourses();
       setNotification(`Enrolled in "${courseTitle}"!`);
       setTimeout(() => setNotification(null), 4000);
       await loadCourses();

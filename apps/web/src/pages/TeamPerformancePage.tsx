@@ -32,16 +32,19 @@ export const TeamPerformancePage: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const [cycleRes, reviewsRes, empRes] = await Promise.all([
-        (api as any).performance.getCycles ? (api as any).performance.getCycles() : fetch('/api/performance/cycles', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('ejc_token')}` },
-        }).then((r) => r.json()).then((d: any) => d.data),
-        fetch('/api/performance/reviews', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('ejc_token')}` },
-        }).then((r) => r.json()).then((d: any) => d.data || []),
-        api.employees.list(),
-      ]);
+     const [cycleRes, reviewsRes, empRes] = await Promise.all([
+  api.performance.getCycles(),
+  api.performance.getReviews(),
+  api.employees.list(),
+]);
 
+setActiveCycle(cycleRes);
+setReviews(reviewsRes || []);
+setEmployees(empRes.items || []);
+
+if (empRes.items && empRes.items.length > 0) {
+  setSelectedEmployeeId(empRes.items[0].id);
+}
       setActiveCycle(cycleRes);
       setReviews(reviewsRes || []);
       setEmployees(empRes.items || []);
